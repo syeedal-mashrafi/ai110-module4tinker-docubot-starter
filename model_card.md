@@ -1,147 +1,105 @@
 # DocuBot Model Card
 
-This model card is a short reflection on your DocuBot system. Fill it out after you have implemented retrieval and experimented with all three modes:
-
-1. Naive LLM over full docs  
-2. Retrieval only  
-3. RAG (retrieval plus LLM)
-
-Use clear, honest descriptions. It is fine if your system is imperfect.
-
----
-
 ## 1. System Overview
 
-**What is DocuBot trying to do?**  
-Describe the overall goal in 2 to 3 sentences.
+**What is DocuBot trying to do?**
 
-> _Your answer here._
+> DocuBot is a lightweight documentation assistant that answers developer questions about a codebase. It reads local markdown files and uses retrieval to find relevant information before generating an answer. The goal is to reduce hallucinations by grounding responses in actual project documentation.
 
-**What inputs does DocuBot take?**  
-For example: user question, docs in folder, environment variables.
+**What inputs does DocuBot take?**
 
-> _Your answer here._
+> DocuBot takes a developer question as input, reads documentation files from the docs/ folder, and uses the GEMINI_API_KEY environment variable to access the LLM for modes 1 and 3.
 
 **What outputs does DocuBot produce?**
 
-> _Your answer here._
+> DocuBot produces text answers. In Mode 1 it generates a free-form LLM response. In Mode 2 it returns raw retrieved document snippets with filenames. In Mode 3 it returns a grounded LLM answer based only on the retrieved snippets.
 
 ---
 
 ## 2. Retrieval Design
 
-**How does your retrieval system work?**  
-Describe your choices for indexing and scoring.
+**How does your retrieval system work?**
 
-- How do you turn documents into an index?
-- How do you score relevance for a query?
-- How do you choose top snippets?
+> Documents are split into words, lowercased, and stored in an inverted index mapping each word to the filenames it appears in. Relevance is scored by counting how many query words appear in each document. The top 3 highest-scoring documents are returned as snippets.
 
-> _Your answer here._
+**What tradeoffs did you make?**
 
-**What tradeoffs did you make?**  
-For example: speed vs precision, simplicity vs accuracy.
-
-> _Your answer here._
+> I chose simplicity over accuracy. Word-count scoring is fast and easy to understand but does not handle synonyms or paraphrased questions.
 
 ---
 
 ## 3. Use of the LLM (Gemini)
 
-**When does DocuBot call the LLM and when does it not?**  
-Briefly describe how each mode behaves.
+**When does DocuBot call the LLM and when does it not?**
 
-- Naive LLM mode:
-- Retrieval only mode:
-- RAG mode:
+- Naive LLM mode: Calls the LLM with the full docs and the question, no retrieval.
+- Retrieval only mode: No LLM is called. Returns raw document snippets.
+- RAG mode: Retrieval runs first, then the LLM is called with only those snippets.
 
-> _Your answer here._
+**What instructions do you give the LLM to keep it grounded?**
 
-**What instructions do you give the LLM to keep it grounded?**  
-Summarize the rules from your prompt. For example: only use snippets, say "I do not know" when needed, cite files.
-
-> _Your answer here._
+> In RAG mode the prompt instructs the LLM to answer using only the provided snippets, not to invent new functions or endpoints, to say I do not know based on the docs I have if snippets are not sufficient, and to mention which files it relied on.
 
 ---
 
 ## 4. Experiments and Comparisons
 
-Run the **same set of queries** in all three modes. Fill in the table with short notes.
+| Query | Naive LLM | Retrieval only | RAG | Notes |
+|-------|-----------|----------------|-----|-------|
+| Where is the auth token generated? | Harmful - fabricated JWT/OAuth details | Helpful - returned AUTH.md | Helpful - short grounded answer | RAG gave clearest answer |
+| How do I connect to the database? | Harmful - generic SQL advice | Helpful - returned DATABASE.md | Helpful - summarized DATABASE.md | Both retrieval and RAG worked |
+| Which endpoint lists all users? | Harmful - invented endpoints | Helpful - returned API_REFERENCE.md | Helpful - correctly identified GET /api/users | RAG was most concise |
+| How does a client refresh a token? | Harmful - mixed real and fabricated info | Helpful - returned AUTH.md | Helpful - cited AUTH.md correctly | Good RAG vs naive example |
 
-You can reuse or adapt the queries from `dataset.py`.
+**What patterns did you notice?**
 
-| Query | Naive LLM: helpful or harmful? | Retrieval only: helpful or harmful? | RAG: helpful or harmful? | Notes |
-|------|---------------------------------|--------------------------------------|---------------------------|-------|
-| Example: Where is the auth token generated? | | | | |
-| Example: How do I connect to the database? | | | | |
-| Example: Which endpoint lists all users? | | | | |
-| Example: How does a client refresh an access token? | | | | |
-
-**What patterns did you notice?**  
-
-- When does naive LLM look impressive but untrustworthy?  
-- When is retrieval only clearly better?  
-- When is RAG clearly better than both?
-
-> _Your answer here._
+> Naive LLM looks impressive but regularly invents details not in the docs. Retrieval only is best when you need to verify exact source content. RAG is best when you want a readable answer that is still grounded in actual documentation.
 
 ---
 
 ## 5. Failure Cases and Guardrails
 
-**Describe at least two concrete failure cases you observed.**  
-For each one, say:
+**Describe at least two concrete failure cases you observed.**
 
-- What was the question?  
-- What did the system do?  
-- What should have happened instead?
+> Failure case 1: Question - Where is the auth token generated in Naive LLM mode. The system described JWT signing and OAuth flows not found in the docs. It should have retrieved from AUTH.md first.
 
-> _Failure case 1 here._
+> Failure case 2: Question - What is the weather today in Retrieval only mode. The word today matched content in AUTH.md so it returned irrelevant docs instead of refusing. It should have returned I do not know based on these docs.
 
-> _Failure case 2 here._
+**When should DocuBot say I do not know based on the docs I have?**
 
-**When should DocuBot say “I do not know based on the docs I have”?**  
-Give at least two specific situations.
+> 1. When the query is completely unrelated to the documentation. 2. When the retrieved snippets have a score of zero meaning no query words matched any document.
 
-> _Your answer here._
+**What guardrails did you implement?**
 
-**What guardrails did you implement?**  
-Examples: refusal rules, thresholds, limits on snippets, safe defaults.
-
-> _Your answer here._
+> The system returns I do not know based on these docs when retrieve returns an empty list. In RAG mode the LLM prompt also instructs the model to refuse if snippets do not support a confident answer.
 
 ---
 
 ## 6. Limitations and Future Improvements
 
-**Current limitations**  
-List at least three limitations of your DocuBot system.
+**Current limitations**
 
-1. _Limitation 1_
-2. _Limitation 2_
-3. _Limitation 3_
+1. Keyword scoring does not handle synonyms or paraphrased questions.
+2. Retrieval unit is a whole document so snippets can be very long with irrelevant sections.
+3. No memory of previous questions so it cannot handle follow-up conversations.
 
-**Future improvements**  
-List two or three changes that would most improve reliability or usefulness.
+**Future improvements**
 
-1. _Improvement 1_
-2. _Improvement 2_
-3. _Improvement 3_
+1. Split documents into paragraphs before indexing so snippets are smaller and more focused.
+2. Use semantic embeddings instead of keyword matching to handle paraphrased queries.
+3. Add a confidence score threshold so the system refuses when retrieval scores are too low.
 
 ---
 
 ## 7. Responsible Use
 
-**Where could this system cause real world harm if used carelessly?**  
-Think about wrong answers, missing information, or over trusting the LLM.
+**Where could this system cause real world harm if used carelessly?**
 
-> _Your answer here._
+> Developers trusting DocuBot without verifying answers could implement incorrect authentication logic or misconfigure environment variables. Naive LLM mode is especially dangerous because it sounds confident while fabricating details.
 
-**What instructions would you give real developers who want to use DocuBot safely?**  
-Write 2 to 4 short bullet points.
+**What instructions would you give real developers who want to use DocuBot safely?**
 
-- _Guideline 1_
-- _Guideline 2_
-- _Guideline 3 (optional)_
-
----
+- Always verify DocuBot answers against the original documentation files before implementing in production.
+- Prefer RAG mode over Naive LLM mode since it cites source files.
+- Treat any answer that does not cite a specific file as potentially hallucinated.
+- Do not use DocuBot as the sole source of truth for security-sensitive topics.
